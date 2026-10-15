@@ -264,6 +264,52 @@ def test_apply_intervals_cmap():
     assert d[0, 0, 0] == 255
 
 
+def test_apply_intervals_cmap_sorted_intervals():
+    """Sorted non-overlapping intervals (binary-search path) match the per-interval loop."""
+    cm = [
+        ((float(i), float(i + 1)), (i % 256, 0, 255 - i % 256, 255))
+        for i in range(0, 300, 2)  # gaps between consecutive bins
+    ]
+    cm.append(((1e3, float("inf")), (1, 2, 3, 255)))
+    data = numpy.random.default_rng(0).uniform(-10, 1200, size=(1, 64, 64))
+    data[0, 0, 0] = numpy.nan  # no interval
+    data[0, 0, 1] = 0.0  # exact lower bound is inside the bin
+    data[0, 0, 2] = 1.0  # exact upper bound falls in the gap
+    data[0, 0, 3] = -5.0  # below all bins
+
+    d, m = colormap.apply_intervals_cmap(data, cm)
+
+    expected = numpy.zeros((64, 64, 4), dtype=numpy.uint8)
+    for (lo, hi), v in cm:
+        expected[(data[0] >= lo) & (data[0] < hi)] = v
+    numpy.testing.assert_array_equal(
+        numpy.concatenate([d, m[None]]), numpy.transpose(expected, [2, 0, 1])
+    )
+    assert m[0, 0] == 0 and m[0, 2] == 0 and m[0, 3] == 0
+    assert m[0, 1] == 255
+
+    # integer data takes the same path
+    d_int, m_int = colormap.apply_intervals_cmap(
+        numpy.nan_to_num(data).astype("int32"), cm
+    )
+    assert d_int.shape == (3, 64, 64) and m_int.shape == (64, 64)
+
+
+def test_apply_intervals_cmap_overlapping_intervals():
+    """Overlapping or unsorted intervals keep the 'last interval wins' rule."""
+    cm = [
+        ((0, 10), (255, 0, 0, 255)),
+        ((5, 15), (0, 255, 0, 255)),
+        ((-5, 2), (0, 0, 255, 255)),
+    ]
+    data = numpy.array([[[1.0, 7.0, 12.0, 20.0]]])
+    d, m = colormap.apply_intervals_cmap(data, cm)
+    assert d[:, 0, 0].tolist() == [0, 0, 255]  # in 1st and 3rd; 3rd is listed last
+    assert d[:, 0, 1].tolist() == [0, 255, 0]  # in 1st and 2nd; 2nd is listed last
+    assert d[:, 0, 2].tolist() == [0, 255, 0]
+    assert m[0].tolist() == [255, 255, 255, 0]
+
+
 @pytest.mark.parametrize(
     "value,result",
     [

@@ -203,8 +203,17 @@ def apply_intervals_cmap(
     """
     res = numpy.zeros((data.shape[1], data.shape[2], 4), dtype=numpy.uint8)
 
-    for k, v in colormap:
-        res[(data[0] >= k[0]) & (data[0] < k[1])] = numpy.array(v)
+    lows = numpy.array([k[0] for k, _ in colormap], dtype="float64")
+    highs = numpy.array([k[1] for k, _ in colormap], dtype="float64")
+    # Sorted, non-overlapping intervals (the usual case, e.g. a 250-bin GIBS colormap)
+    # resolve with one binary search instead of one boolean mask per interval.
+    if len(colormap) > 1 and (lows[1:] >= highs[:-1]).all() and (highs >= lows).all():
+        idx = numpy.searchsorted(lows, data[0], side="right") - 1
+        valid = (idx >= 0) & (data[0] < highs[numpy.maximum(idx, 0)])
+        res[valid] = numpy.array([v for _, v in colormap])[idx[valid]]
+    else:
+        for k, v in colormap:
+            res[(data[0] >= k[0]) & (data[0] < k[1])] = numpy.array(v)
 
     data = numpy.transpose(res, [2, 0, 1])
 
